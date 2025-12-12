@@ -4,7 +4,6 @@ import {
   Pause,
   SkipBack,
   SkipForward,
-  // Fixed
   Volume2,
   VolumeX,
   Repeat,
@@ -15,14 +14,14 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 
-// FIX TYPESCRIPT LỖI YT
+// TypeScript declarations
 declare global {
   interface Window {
     YT: any;
     onYouTubeIframeAPIReady: () => void;
+    ytApiReady?: boolean;
   }
 }
-declare var onYouTubeIframeAPIReady: (() => void) | undefined;
 
 export interface Song {
   id: number;
@@ -39,16 +38,21 @@ interface MusicPlayerProps {
   songs: Song[];
 }
 
-// Tải YouTube IFrame API (chỉ tải 1 lần)
+// Load YouTube API (only once)
 const loadYouTubeAPI = () => {
-  if (window.YT && window.YT.Player) return;
+  if (window.YT && window.YT.Player) {
+    window.ytApiReady = true;
+    return;
+  }
+  if (document.querySelector('script[src*="youtube.com/iframe_api"]')) return;
+
   const tag = document.createElement("script");
   tag.src = "https://www.youtube.com/iframe_api";
   const firstScriptTag = document.getElementsByTagName("script")[0];
   firstScriptTag.parentNode!.insertBefore(tag, firstScriptTag);
 
   window.onYouTubeIframeAPIReady = () => {
-    (window as any).ytApiReady = true;
+    window.ytApiReady = true;
   };
 };
 
@@ -64,95 +68,94 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
   const [showPlaylist, setShowPlaylist] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const playerRef = useRef<any>(null); // YouTube Player instance
+  const playerRef = useRef<any>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<any>(null);
 
   const currentSong = songs[currentSongIndex] || {};
 
-  // Load YouTube API khi component mount
+  // Load YouTube API on mount
   useEffect(() => {
     loadYouTubeAPI();
   }, []);
 
-  // Thay toàn bộ useEffect tạo player (khoảng dòng 70-100) bằng đoạn này:
-
+  // Initialize player when song changes
   useEffect(() => {
-    if (currentSong.type !== "youtube" || !currentSong.youtubeId) return;
-
     setCurrentTime(0);
-    setDuration(0);
+    setIsPlaying(false);
 
-    // Destroy player cũ
-    if (playerRef.current) {
-      try {
-        playerRef.current.destroy();
-      } catch (e) {}
-      playerRef.current = null;
+    // Clear interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
 
-    const createPlayerWithRetry = () => {
-      // Đợi API sẵn sàng + DOM node tồn tại
-      if (!(window as any).YT || !playerContainerRef.current) {
-        setTimeout(createPlayerWithRetry, 200);
-        return;
+    // Handle YouTube
+    if (currentSong.type === "youtube" && currentSong.youtubeId) {
+      // Destroy old player
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (e) {}
+        playerRef.current = null;
       }
 
-      playerRef.current = new window.YT.Player(playerContainerRef.current, {
-        height: "0",
-        width: "0",
-        videoId: currentSong.youtubeId,
-        playerVars: {
-          autoplay: 1,
-          controls: 0,
-          modestbranding: 1,
-          rel: 0,
-          fs: 0,
-          playsinline: 1,
-          enablejsapi: 1,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: (event: any) => {
-            const player = event.target;
-            const dur = player.getDuration?.() || 0;
-            setDuration(dur);
+      const createPlayer = () => {
+        if (!window.ytApiReady || !playerContainerRef.current) {
+          setTimeout(createPlayer, 200);
+          return;
+        }
 
-            // Nếu đang ở trạng thái playing → bật tiếng luôn
-            if (isPlaying) {
-              player.setVolume(isMuted ? 0 : volume * 100);
-              player.playVideo?.();
-            }
+        playerRef.current = new window.YT.Player(playerContainerRef.current, {
+          height: "0",
+          width: "0",
+          videoId: currentSong.youtubeId,
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
+            modestbranding: 1,
+            rel: 0,
+            fs: 0,
+            playsinline: 1,
+            enablejsapi: 1,
           },
-          onStateChange: (event: any) => {
-            const player = event.target;
-            if (event.data === window.YT.PlayerState.PLAYING) {
-              // Lấy duration lần nữa khi bắt đầu play (trường hợp có quảng cáo)
+          events: {
+            onReady: (event: any) => {
+              const player = event.target;
               const dur = player.getDuration?.() || 0;
               setDuration(dur);
-            }
-            if (event.data === window.YT.PlayerState.ENDED) {
-              handleSongEnd();
-            }
+              player.setVolume(isMuted ? 0 : volume * 100);
+            },
+            onStateChange: (event: any) => {
+              if (event.data === window.YT.PlayerState.PLAYING) {
+                setIsPlaying(true);
+                const dur = event.target.getDuration?.() || 0;
+                setDuration(dur);
+              } else if (event.data === window.YT.PlayerState.PAUSED) {
+                setIsPlaying(false);
+              } else if (event.data === window.YT.PlayerState.ENDED) {
+                handleSongEnd();
+              }
+            },
+            onError: (event: any) => {
+              console.error("YouTube Error:", event.data);
+              alert("Không thể phát video YouTube này");
+              handleNext();
+            },
           },
-          onError: (event: any) => {
-            console.error("YouTube Player Error:", event.data);
-            // 18: // Video không khả dụng (private, deleted, region-block…)
-            101; // Video không cho embed
-            150; // Video không cho embed
-            alert(
-              "Không thể phát video YouTube này (bị chặn, private hoặc có bản quyền)"
-            );
-            handleNext(); // tự động next bài khác
-          },
-        },
-      });
-    };
+        });
+      };
 
-    createPlayerWithRetry();
+      createPlayer();
+    }
+    // Handle local MP3
+    else if (audioRef.current) {
+      audioRef.current.load();
+      setDuration(0);
+    }
   }, [currentSongIndex]);
 
-  // Play / Pause
+  // Play/Pause control
   useEffect(() => {
     if (currentSong.type === "youtube" && playerRef.current) {
       try {
@@ -161,19 +164,23 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
         } else {
           playerRef.current.pauseVideo?.();
         }
-      } catch (e) {
-        console.warn("YouTube player not ready yet");
+      } catch (e) {}
+    } else if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.play().catch(e => console.error("Play error:", e));
+      } else {
+        audioRef.current.pause();
       }
     }
   }, [isPlaying, currentSong.type]);
 
-  // Cập nhật currentTime mỗi 100ms (cho YouTube)
+  // YouTube time tracking
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
 
     if (currentSong.type === "youtube" && playerRef.current && isPlaying) {
       intervalRef.current = setInterval(() => {
-        if (playerRef.current && playerRef.current.getCurrentTime) {
+        if (playerRef.current?.getCurrentTime) {
           setCurrentTime(playerRef.current.getCurrentTime());
         }
       }, 100);
@@ -184,27 +191,27 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
     };
   }, [currentSong.type, isPlaying]);
 
-  // Volume + Mute
+  // Volume control
   useEffect(() => {
     if (currentSong.type === "youtube" && playerRef.current) {
       try {
         playerRef.current.setVolume?.(isMuted ? 0 : volume * 100);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) {}
+    } else if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted, currentSong.type]);
 
+  // MP3 time update
   const handleTimeUpdate = () => {
     if (currentSong.type !== "youtube" && audioRef.current) {
       setCurrentTime(audioRef.current.currentTime);
-      if (audioRef.current.duration && !duration) {
+      if (audioRef.current.duration) {
         setDuration(audioRef.current.duration);
       }
     }
   };
 
-  // Seek
   const handleSeek = (value: number[]) => {
     const seconds = value[0];
     setCurrentTime(seconds);
@@ -233,12 +240,10 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
 
   const handleNext = () => {
     if (isShuffle) {
-      const randomIndex = Math.floor(Math.random() * songs.length);
-      setCurrentSongIndex(randomIndex);
+      setCurrentSongIndex(Math.floor(Math.random() * songs.length));
     } else {
       setCurrentSongIndex(prev => (prev + 1) % songs.length);
     }
-    setIsPlaying(true);
   };
 
   const handlePrev = () => {
@@ -247,7 +252,6 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
     } else {
       setCurrentSongIndex(prev => (prev - 1 + songs.length) % songs.length);
     }
-    setIsPlaying(true);
   };
 
   const formatTime = (time: number) => {
@@ -259,7 +263,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
 
   return (
     <div className="flex flex-col lg:flex-row h-[85vh] w-full max-w-6xl mx-auto gap-6 p-4 lg:p-8">
-      {/* Audio tag cho local MP3 */}
+      {/* Audio element for MP3 */}
       {currentSong.type !== "youtube" && (
         <audio
           ref={audioRef}
@@ -270,15 +274,13 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
         />
       )}
 
-      {/* YouTube Player ẩn */}
+      {/* YouTube player container */}
       {currentSong.type === "youtube" && (
-        <div
-          ref={playerContainerRef}
-          style={{ position: "absolute", left: "-9999px" }}
-        />
+        <div style={{ display: "none" }}>
+          <div ref={playerContainerRef} />
+        </div>
       )}
 
-      {/* Phần còn lại giữ nguyên 100% như cũ */}
       {/* Playlist Section */}
       <div
         className={cn(
@@ -288,8 +290,6 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
             : "hidden lg:flex"
         )}
       >
-        {/* ... phần playlist giữ nguyên ... */}
-        {/* (tui giữ nguyên hết phần này như code cũ của ông) */}
         <div className="p-6 border-b border-white/10 flex justify-between items-center">
           <h2 className="text-xl font-bold text-white tracking-wide">
             Playlist
@@ -301,13 +301,13 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {songs.map((song, index) => (
             <div
               key={song.id}
               onClick={() => {
                 setCurrentSongIndex(index);
-                setIsPlaying(true);
                 setShowPlaylist(false);
               }}
               className={cn(
@@ -326,9 +326,15 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
                 {currentSongIndex === index && isPlaying && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                     <div className="flex gap-0.5 h-3 items-end">
-                      <div className="w-1 bg-white animate-[music-bar_0.6s_ease-in-out_infinite] h-full"></div>
-                      <div className="w-1 bg-white animate-[music-bar_0.8s_ease-in-out_infinite_0.1s] h-2/3"></div>
-                      <div className="w-1 bg-white animate-[music-bar_0.5s_ease-in-out_infinite_0.2s] h-full"></div>
+                      <div className="w-1 bg-white animate-pulse h-full"></div>
+                      <div
+                        className="w-1 bg-white animate-pulse h-2/3"
+                        style={{ animationDelay: "0.1s" }}
+                      ></div>
+                      <div
+                        className="w-1 bg-white animate-pulse h-full"
+                        style={{ animationDelay: "0.2s" }}
+                      ></div>
                     </div>
                   </div>
                 )}
@@ -337,20 +343,14 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
                 <h3
                   className={cn(
                     "font-medium truncate",
-                    currentSongIndex === index
-                      ? "text-white"
-                      : "text-white/80 group-hover:text-white"
+                    currentSongIndex === index ? "text-white" : "text-white/80"
                   )}
                 >
                   {song.title}
                 </h3>
                 <p className="text-sm text-white/50 truncate">{song.artist}</p>
               </div>
-              <span className="text-xs text-white/40">
-                {currentSongIndex === index
-                  ? formatTime(currentTime) + " / " + formatTime(duration)
-                  : song.duration}
-              </span>
+              <span className="text-xs text-white/40">{song.duration}</span>
             </div>
           ))}
         </div>
@@ -403,12 +403,11 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
         </div>
 
         <div className="space-y-6">
-          {/* Progress Bar - BÂY GIỜ CẢ YOUTUBE CŨNG ĐƯỢC TUA */}
           <div className="space-y-2">
             <Slider
               value={[currentTime]}
               max={duration || 100}
-              step={0.1}
+              step={1}
               onValueChange={handleSeek}
               className="cursor-pointer"
             />
@@ -418,7 +417,6 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
             </div>
           </div>
 
-          {/* Controls - next/prev giờ hoạt động với cả YouTube */}
           <div className="flex items-center justify-center gap-4 sm:gap-8">
             <button
               onClick={() => setIsShuffle(!isShuffle)}
@@ -490,6 +488,22 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
           </div>
         </div>
       </div>
+
+      <style>{`
+        .glass-panel {
+          background: rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-button {
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(10px);
+          transition: all 0.3s;
+        }
+        .glass-button:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+      `}</style>
     </div>
   );
 }
