@@ -1,0 +1,495 @@
+import { useState, useRef, useEffect } from "react";
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  // Fixed
+  Volume2,
+  VolumeX,
+  Repeat,
+  Shuffle,
+  ListMusic,
+  X,
+} from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
+
+// FIX TYPESCRIPT LỖI YT
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+declare var onYouTubeIframeAPIReady: (() => void) | undefined;
+
+export interface Song {
+  id: number;
+  title: string;
+  artist: string;
+  cover: string;
+  url: string;
+  duration: string;
+  type?: "local" | "youtube";
+  youtubeId?: string;
+}
+
+interface MusicPlayerProps {
+  songs: Song[];
+}
+
+// Tải YouTube IFrame API (chỉ tải 1 lần)
+const loadYouTubeAPI = () => {
+  if (window.YT && window.YT.Player) return;
+  const tag = document.createElement("script");
+  tag.src = "https://www.youtube.com/iframe_api";
+  const firstScriptTag = document.getElementsByTagName("script")[0];
+  firstScriptTag.parentNode!.insertBefore(tag, firstScriptTag);
+
+  window.onYouTubeIframeAPIReady = () => {
+    (window as any).ytApiReady = true;
+  };
+};
+
+export default function MusicPlayer({ songs }: MusicPlayerProps) {
+  const [currentSongIndex, setCurrentSongIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(0.8);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isRepeat, setIsRepeat] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const playerRef = useRef<any>(null); // YouTube Player instance
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const currentSong = songs[currentSongIndex] || {};
+
+  // Load YouTube API khi component mount
+  useEffect(() => {
+    loadYouTubeAPI();
+  }, []);
+
+  // Thay toàn bộ useEffect tạo player (khoảng dòng 70-100) bằng đoạn này:
+
+  useEffect(() => {
+    if (currentSong.type !== "youtube" || !currentSong.youtubeId) return;
+
+    setCurrentTime(0);
+    setDuration(0);
+
+    // Destroy player cũ
+    if (playerRef.current) {
+      try {
+        playerRef.current.destroy();
+      } catch (e) {}
+      playerRef.current = null;
+    }
+
+    const createPlayerWithRetry = () => {
+      // Đợi API sẵn sàng + DOM node tồn tại
+      if (!(window as any).YT || !playerContainerRef.current) {
+        setTimeout(createPlayerWithRetry, 200);
+        return;
+      }
+
+      playerRef.current = new window.YT.Player(playerContainerRef.current, {
+        height: "0",
+        width: "0",
+        videoId: currentSong.youtubeId,
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          fs: 0,
+          playsinline: 1,
+          enablejsapi: 1,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: (event: any) => {
+            const player = event.target;
+            const dur = player.getDuration?.() || 0;
+            setDuration(dur);
+
+            // Nếu đang ở trạng thái playing → bật tiếng luôn
+            if (isPlaying) {
+              player.setVolume(isMuted ? 0 : volume * 100);
+              player.playVideo?.();
+            }
+          },
+          onStateChange: (event: any) => {
+            const player = event.target;
+            if (event.data === window.YT.PlayerState.PLAYING) {
+              // Lấy duration lần nữa khi bắt đầu play (trường hợp có quảng cáo)
+              const dur = player.getDuration?.() || 0;
+              setDuration(dur);
+            }
+            if (event.data === window.YT.PlayerState.ENDED) {
+              handleSongEnd();
+            }
+          },
+          onError: (event: any) => {
+            console.error("YouTube Player Error:", event.data);
+            // 18: // Video không khả dụng (private, deleted, region-block…)
+            101; // Video không cho embed
+            150; // Video không cho embed
+            alert(
+              "Không thể phát video YouTube này (bị chặn, private hoặc có bản quyền)"
+            );
+            handleNext(); // tự động next bài khác
+          },
+        },
+      });
+    };
+
+    createPlayerWithRetry();
+  }, [currentSongIndex]);
+
+  // Play / Pause
+  useEffect(() => {
+    if (currentSong.type === "youtube" && playerRef.current) {
+      try {
+        if (isPlaying) {
+          playerRef.current.playVideo?.();
+        } else {
+          playerRef.current.pauseVideo?.();
+        }
+      } catch (e) {
+        console.warn("YouTube player not ready yet");
+      }
+    }
+  }, [isPlaying, currentSong.type]);
+
+  // Cập nhật currentTime mỗi 100ms (cho YouTube)
+  useEffect(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    if (currentSong.type === "youtube" && playerRef.current && isPlaying) {
+      intervalRef.current = setInterval(() => {
+        if (playerRef.current && playerRef.current.getCurrentTime) {
+          setCurrentTime(playerRef.current.getCurrentTime());
+        }
+      }, 100);
+    }
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [currentSong.type, isPlaying]);
+
+  // Volume + Mute
+  useEffect(() => {
+    if (currentSong.type === "youtube" && playerRef.current) {
+      try {
+        playerRef.current.setVolume?.(isMuted ? 0 : volume * 100);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [volume, isMuted, currentSong.type]);
+
+  const handleTimeUpdate = () => {
+    if (currentSong.type !== "youtube" && audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      if (audioRef.current.duration && !duration) {
+        setDuration(audioRef.current.duration);
+      }
+    }
+  };
+
+  // Seek
+  const handleSeek = (value: number[]) => {
+    const seconds = value[0];
+    setCurrentTime(seconds);
+
+    if (currentSong.type === "youtube" && playerRef.current?.seekTo) {
+      playerRef.current.seekTo(seconds, true);
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = seconds;
+    }
+  };
+
+  const handleSongEnd = () => {
+    if (isRepeat) {
+      setCurrentTime(0);
+      if (currentSong.type === "youtube" && playerRef.current) {
+        playerRef.current.seekTo(0);
+        playerRef.current.playVideo();
+      } else if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+      }
+    } else {
+      handleNext();
+    }
+  };
+
+  const handleNext = () => {
+    if (isShuffle) {
+      const randomIndex = Math.floor(Math.random() * songs.length);
+      setCurrentSongIndex(randomIndex);
+    } else {
+      setCurrentSongIndex(prev => (prev + 1) % songs.length);
+    }
+    setIsPlaying(true);
+  };
+
+  const handlePrev = () => {
+    if (currentTime > 3) {
+      handleSeek([0]);
+    } else {
+      setCurrentSongIndex(prev => (prev - 1 + songs.length) % songs.length);
+    }
+    setIsPlaying(true);
+  };
+
+  const formatTime = (time: number) => {
+    if (!time || isNaN(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="flex flex-col lg:flex-row h-[85vh] w-full max-w-6xl mx-auto gap-6 p-4 lg:p-8">
+      {/* Audio tag cho local MP3 */}
+      {currentSong.type !== "youtube" && (
+        <audio
+          ref={audioRef}
+          src={currentSong.url}
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleSongEnd}
+          onLoadedMetadata={handleTimeUpdate}
+        />
+      )}
+
+      {/* YouTube Player ẩn */}
+      {currentSong.type === "youtube" && (
+        <div
+          ref={playerContainerRef}
+          style={{ position: "absolute", left: "-9999px" }}
+        />
+      )}
+
+      {/* Phần còn lại giữ nguyên 100% như cũ */}
+      {/* Playlist Section */}
+      <div
+        className={cn(
+          "glass-panel rounded-3xl flex-1 flex flex-col overflow-hidden transition-all duration-500 ease-in-out",
+          showPlaylist
+            ? "fixed inset-4 z-50 lg:static lg:inset-auto"
+            : "hidden lg:flex"
+        )}
+      >
+        {/* ... phần playlist giữ nguyên ... */}
+        {/* (tui giữ nguyên hết phần này như code cũ của ông) */}
+        <div className="p-6 border-b border-white/10 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-white tracking-wide">
+            Playlist
+          </h2>
+          <button
+            onClick={() => setShowPlaylist(false)}
+            className="lg:hidden p-2 hover:bg-white/10 rounded-full"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+          {songs.map((song, index) => (
+            <div
+              key={song.id}
+              onClick={() => {
+                setCurrentSongIndex(index);
+                setIsPlaying(true);
+                setShowPlaylist(false);
+              }}
+              className={cn(
+                "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all group hover:bg-white/10",
+                currentSongIndex === index
+                  ? "bg-white/20 border border-white/10 shadow-lg"
+                  : "border border-transparent"
+              )}
+            >
+              <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                <img
+                  src={song.cover}
+                  alt={song.title}
+                  className="w-full h-full object-cover"
+                />
+                {currentSongIndex === index && isPlaying && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <div className="flex gap-0.5 h-3 items-end">
+                      <div className="w-1 bg-white animate-[music-bar_0.6s_ease-in-out_infinite] h-full"></div>
+                      <div className="w-1 bg-white animate-[music-bar_0.8s_ease-in-out_infinite_0.1s] h-2/3"></div>
+                      <div className="w-1 bg-white animate-[music-bar_0.5s_ease-in-out_infinite_0.2s] h-full"></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3
+                  className={cn(
+                    "font-medium truncate",
+                    currentSongIndex === index
+                      ? "text-white"
+                      : "text-white/80 group-hover:text-white"
+                  )}
+                >
+                  {song.title}
+                </h3>
+                <p className="text-sm text-white/50 truncate">{song.artist}</p>
+              </div>
+              <span className="text-xs text-white/40">
+                {currentSongIndex === index
+                  ? formatTime(currentTime) + " / " + formatTime(duration)
+                  : song.duration}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Player Section */}
+      <div className="glass-panel rounded-3xl flex-[1.5] flex flex-col p-6 lg:p-10 relative overflow-hidden">
+        <div
+          className="absolute inset-0 -z-10 opacity-30 blur-3xl transition-all duration-1000"
+          style={{
+            background: `radial-gradient(circle at center, ${currentSongIndex % 2 === 0 ? "#a855f7" : "#3b82f6"}, transparent 70%)`,
+          }}
+        ></div>
+
+        <div className="lg:hidden absolute top-4 right-4">
+          <button
+            onClick={() => setShowPlaylist(true)}
+            className="p-3 glass-button rounded-full"
+          >
+            <ListMusic className="w-5 h-5 text-white" />
+          </button>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center py-6">
+          <div
+            className={cn(
+              "relative w-64 h-64 sm:w-80 sm:h-80 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
+              isPlaying ? "animate-[spin_20s_linear_infinite]" : ""
+            )}
+          >
+            <img
+              src={currentSong.cover}
+              alt={currentSong.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 rounded-full border-[3px] border-white/20"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-white/10 backdrop-blur-md rounded-full border border-white/20 flex items-center justify-center">
+              <div className="w-4 h-4 bg-white/30 rounded-full"></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-center mb-8 space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            {currentSong.title}
+          </h1>
+          <p className="text-lg text-white/60 font-light">
+            {currentSong.artist}
+          </p>
+        </div>
+
+        <div className="space-y-6">
+          {/* Progress Bar - BÂY GIỜ CẢ YOUTUBE CŨNG ĐƯỢC TUA */}
+          <div className="space-y-2">
+            <Slider
+              value={[currentTime]}
+              max={duration || 100}
+              step={0.1}
+              onValueChange={handleSeek}
+              className="cursor-pointer"
+            />
+            <div className="flex justify-between text-xs font-medium text-white/40">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          {/* Controls - next/prev giờ hoạt động với cả YouTube */}
+          <div className="flex items-center justify-center gap-4 sm:gap-8">
+            <button
+              onClick={() => setIsShuffle(!isShuffle)}
+              className={cn(
+                "p-2 transition-colors",
+                isShuffle ? "text-primary" : "text-white/40 hover:text-white"
+              )}
+            >
+              <Shuffle className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={handlePrev}
+              className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"
+            >
+              <SkipBack className="w-6 h-6 text-white fill-white" />
+            </button>
+
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="p-4 sm:p-6 bg-white text-primary rounded-full shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all"
+            >
+              {isPlaying ? (
+                <Pause className="w-8 h-8 fill-current" />
+              ) : (
+                <Play className="w-8 h-8 fill-current ml-1" />
+              )}
+            </button>
+
+            <button
+              onClick={handleNext}
+              className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"
+            >
+              <SkipForward className="w-6 h-6 text-white fill-white" />
+            </button>
+
+            <button
+              onClick={() => setIsRepeat(!isRepeat)}
+              className={cn(
+                "p-2 transition-colors",
+                isRepeat ? "text-primary" : "text-white/40 hover:text-white"
+              )}
+            >
+              <Repeat className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-3 max-w-xs mx-auto pt-2">
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="text-white/60 hover:text-white"
+            >
+              {isMuted || volume === 0 ? (
+                <VolumeX className="w-5 h-5" />
+              ) : (
+                <Volume2 className="w-5 h-5" />
+              )}
+            </button>
+            <Slider
+              value={[isMuted ? 0 : volume]}
+              max={1}
+              step={0.01}
+              onValueChange={v => {
+                setVolume(v[0]);
+                if (v[0] > 0) setIsMuted(false);
+              }}
+              className="w-24 sm:w-32"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
