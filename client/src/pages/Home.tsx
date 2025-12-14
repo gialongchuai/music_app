@@ -19,18 +19,28 @@ export default function Home() {
       }
     }
   }, []);
+  const handleRemoveSong = (songId: number) => {
+    const updatedSongs = songs.filter(song => song.id !== songId);
+    setSongs(updatedSongs);
 
+    // Cập nhật localStorage (tương tự handleAddSongs)
+    const songsToSave = updatedSongs.map(song => ({
+      ...song,
+      url: song.type === "youtube" ? song.url : "[LOCAL_FILE]",
+    }));
+    localStorage.setItem("musicPlayerSongs", JSON.stringify(songsToSave));
+  };
   const handleAddSongs = (newSongs: Song[]) => {
     const updatedSongs = [...songs, ...newSongs];
     setSongs(updatedSongs);
-    
+
     // Save to localStorage (only metadata, not blob URLs for local files)
     const songsToSave = updatedSongs.map(song => ({
       ...song,
-      url: song.type === 'youtube' ? song.url : '[LOCAL_FILE]'
+      url: song.type === "youtube" ? song.url : "[LOCAL_FILE]",
     }));
     localStorage.setItem("musicPlayerSongs", JSON.stringify(songsToSave));
-    
+
     setIsImporterOpen(false);
   };
 
@@ -44,9 +54,12 @@ export default function Home() {
       {songs.length === 0 ? (
         <div className="glass-panel rounded-3xl p-8 text-center max-w-md w-full space-y-6">
           <div className="text-6xl">🎵</div>
-          <h1 className="text-2xl font-bold text-white">Chào mừng đến với Music Player</h1>
+          <h1 className="text-2xl font-bold text-white">
+            Chào mừng đến với Music Player
+          </h1>
           <p className="text-white/60">
-            Bạn chưa có bài hát nào. Hãy thêm bài hát bằng cách tải lên MP3 hoặc nhập URL YouTube.
+            Bạn chưa có bài hát nào. Hãy thêm bài hát bằng cách tải lên MP3 hoặc
+            nhập URL YouTube.
           </p>
           <button
             onClick={() => setIsImporterOpen(true)}
@@ -73,7 +86,7 @@ export default function Home() {
               Xóa tất cả
             </button>
           </div>
-          <MusicPlayer songs={songs} />
+          <MusicPlayer songs={songs}  onRemoveSong={handleRemoveSong}  />
         </div>
       )}
 

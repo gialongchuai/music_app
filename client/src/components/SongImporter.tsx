@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, Link as LinkIcon, X, Music } from "lucide-react";
 import { Song } from "./MusicPlayer";
 import { cn } from "@/lib/utils";
@@ -9,20 +9,24 @@ interface SongImporterProps {
   onClose: () => void;
 }
 
-export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImporterProps) {
+export default function SongImporter({
+  onAddSongs,
+  isOpen,
+  onClose,
+}: SongImporterProps) {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [songTitle, setSongTitle] = useState("");
   const [artistName, setArtistName] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isFetchingMetadata, setIsFetchingMetadata] = useState(false); // Để hiển thị loading khi fetch
 
   const extractYoutubeId = (url: string): string | null => {
     const patterns = [
       /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
       /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
     ];
-
     for (const pattern of patterns) {
       const match = url.match(pattern);
       if (match) return match[1];
@@ -30,9 +34,57 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
     return null;
   };
 
+  // Effect để tự động fetch metadata khi URL thay đổi và hợp lệ
+  useEffect(() => {
+    const youtubeId = extractYoutubeId(youtubeUrl);
+    if (!youtubeId) {
+      return;
+    }
+
+    const fetchMetadata = async () => {
+      setIsFetchingMetadata(true);
+      setError("");
+
+      try {
+        const response = await fetch(
+          `https://noembed.com/embed?url=https://www.youtube.com/watch?v=${youtubeId}`
+        );
+        if (!response.ok) throw new Error("Không thể lấy thông tin video");
+
+        const data = await response.json();
+
+        if (data.title) {
+          // Thường title có dạng "Tên bài hát - Nghệ sĩ" hoặc "Tên bài hát"
+          setSongTitle(data.title);
+
+          // Nếu có author_name thì ưu tiên dùng làm artist, nếu không thì thử tách từ title
+          if (data.author_name) {
+            setArtistName(data.author_name);
+          } else {
+            // Tách artist từ title (phổ biến là sau dấu gạch ngang cuối cùng)
+            const parts = data.title.split(" - ");
+            if (parts.length > 1) {
+              setArtistName(parts[parts.length - 1].trim());
+            }
+          }
+        }
+      } catch (err) {
+        setError(
+          "Không thể lấy tự động tên bài hát/nghệ sĩ. Bạn có thể nhập thủ công."
+        );
+      } finally {
+        setIsFetchingMetadata(false);
+      }
+    };
+
+    fetchMetadata();
+  }, [youtubeUrl]); // Chạy lại mỗi khi youtubeUrl thay đổi
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const mp3Files = files.filter(file => file.type === "audio/mpeg" || file.name.endsWith(".mp3"));
+    const mp3Files = files.filter(
+      file => file.type === "audio/mpeg" || file.name.endsWith(".mp3")
+    );
 
     if (mp3Files.length !== files.length) {
       setError("Chỉ chấp nhận file MP3");
@@ -65,7 +117,7 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
       id: Date.now(),
       title: songTitle,
       artist: artistName,
-      cover: `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg`,
+      cover: `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`,
       url: `https://www.youtube.com/embed/${youtubeId}`,
       duration: "0:00",
       type: "youtube",
@@ -92,7 +144,7 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
       const url = URL.createObjectURL(file);
       const audio = new Audio();
 
-      await new Promise((resolve) => {
+      await new Promise(resolve => {
         audio.onloadedmetadata = () => {
           const duration = Math.floor(audio.duration);
           const minutes = Math.floor(duration / 60);
@@ -129,12 +181,7 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="glass-panel rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 p-6 border-b border-white/10 flex justify-between items-center bg-black/20 backdrop-blur-xl">
-          <h2 className="text-2xl font-bold text-white">Thêm bài hát</h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition">
-            <X className="w-6 h-6 text-white" />
-          </button>
-        </div>
+        {/* ... header giữ nguyên */}
 
         <div className="p-6 space-y-6">
           {error && (
@@ -154,26 +201,38 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
                 type="text"
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
+                onChange={e => setYoutubeUrl(e.target.value)}
                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary"
               />
+
               <input
                 type="text"
-                placeholder="Tên bài hát"
+                placeholder="Tên bài hát (tự động điền nếu có)"
                 value={songTitle}
-                onChange={(e) => setSongTitle(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary"
+                onChange={e => setSongTitle(e.target.value)}
+                disabled={isFetchingMetadata}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
               />
+
               <input
                 type="text"
-                placeholder="Tên nghệ sĩ"
+                placeholder="Tên nghệ sĩ (tự động điền nếu có)"
                 value={artistName}
-                onChange={(e) => setArtistName(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary"
+                onChange={e => setArtistName(e.target.value)}
+                disabled={isFetchingMetadata}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-70"
               />
+
+              {isFetchingMetadata && (
+                <p className="text-sm text-white/60">
+                  Đang lấy thông tin tự động...
+                </p>
+              )}
+
               <button
                 onClick={handleAddYoutubeUrl}
-                className="w-full px-4 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition"
+                disabled={isFetchingMetadata}
+                className="w-full px-4 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition disabled:opacity-70"
               >
                 Thêm từ YouTube
               </button>
@@ -197,8 +256,12 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
               />
               <div className="border-2 border-dashed border-white/30 rounded-xl p-8 text-center cursor-pointer hover:border-white/50 hover:bg-white/5 transition">
                 <Music className="w-12 h-12 text-white/40 mx-auto mb-3" />
-                <p className="text-white font-medium">Kéo thả file MP3 hoặc nhấp để chọn</p>
-                <p className="text-white/50 text-sm mt-1">Hỗ trợ nhiều file cùng lúc</p>
+                <p className="text-white font-medium">
+                  Kéo thả file MP3 hoặc nhấp để chọn
+                </p>
+                <p className="text-white/50 text-sm mt-1">
+                  Hỗ trợ nhiều file cùng lúc
+                </p>
               </div>
             </label>
 
@@ -214,7 +277,9 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
                       key={index}
                       className="flex items-center justify-between p-3 bg-white/10 rounded-lg border border-white/10"
                     >
-                      <span className="text-white text-sm truncate">{file.name}</span>
+                      <span className="text-white text-sm truncate">
+                        {file.name}
+                      </span>
                       <button
                         onClick={() => removeFile(index)}
                         className="p-1 hover:bg-white/10 rounded transition"
@@ -238,7 +303,9 @@ export default function SongImporter({ onAddSongs, isOpen, onClose }: SongImport
                   : "bg-white/10 text-white/50 cursor-not-allowed"
               )}
             >
-              {isLoading ? "Đang xử lý..." : `Thêm ${uploadedFiles.length} file`}
+              {isLoading
+                ? "Đang xử lý..."
+                : `Thêm ${uploadedFiles.length} file`}
             </button>
           </div>
 

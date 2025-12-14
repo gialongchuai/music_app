@@ -36,6 +36,7 @@ export interface Song {
 
 interface MusicPlayerProps {
   songs: Song[];
+  onRemoveSong: (songId: number) => void; // Thêm prop này
 }
 
 // Load YouTube API (only once)
@@ -56,7 +57,7 @@ const loadYouTubeAPI = () => {
   };
 };
 
-export default function MusicPlayer({ songs }: MusicPlayerProps) {
+export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   const [currentSongIndex, setCurrentSongIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -82,7 +83,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
   // Initialize player when song changes
   useEffect(() => {
     setCurrentTime(0);
-    setIsPlaying(false);
+    // KHÔNG setIsPlaying(false) nữa - giữ nguyên trạng thái
 
     // Clear interval
     if (intervalRef.current) {
@@ -102,7 +103,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
 
       const createPlayer = () => {
         if (!window.ytApiReady || !playerContainerRef.current) {
-          setTimeout(createPlayer, 200);
+          setTimeout(createPlayer, 100);
           return;
         }
 
@@ -111,7 +112,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
           width: "0",
           videoId: currentSong.youtubeId,
           playerVars: {
-            autoplay: 0,
+            autoplay: 0, // Giữ 0, không dùng autoplay=1 vì không tin cậy trong React
             controls: 0,
             modestbranding: 1,
             rel: 0,
@@ -125,6 +126,11 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
               const dur = player.getDuration?.() || 0;
               setDuration(dur);
               player.setVolume(isMuted ? 0 : volume * 100);
+
+              // QUAN TRỌNG: Chỉ play khi ready VÀ người dùng đang muốn play
+              if (isPlaying) {
+                player.playVideo();
+              }
             },
             onStateChange: (event: any) => {
               if (event.data === window.YT.PlayerState.PLAYING) {
@@ -152,8 +158,16 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
     else if (audioRef.current) {
       audioRef.current.load();
       setDuration(0);
+
+      // Với local MP3: play ngay nếu đang isPlaying
+      if (isPlaying) {
+        audioRef.current.play().catch(e => {
+          console.error("Local play error:", e);
+          setIsPlaying(false); // nếu bị chặn thì cập nhật UI
+        });
+      }
     }
-  }, [currentSongIndex]);
+  }, [currentSongIndex]); // Chỉ chạy khi đổi bài
 
   // Play/Pause control
   useEffect(() => {
@@ -167,7 +181,9 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
       } catch (e) {}
     } else if (audioRef.current) {
       if (isPlaying) {
-        audioRef.current.play().catch(e => console.error("Play error:", e));
+        audioRef.current.play().catch(() => {
+          setIsPlaying(false); // nếu trình duyệt chặn thì cập nhật UI đúng
+        });
       } else {
         audioRef.current.pause();
       }
@@ -181,7 +197,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
     if (currentSong.type === "youtube" && playerRef.current && isPlaying) {
       intervalRef.current = setInterval(() => {
         if (playerRef.current?.getCurrentTime) {
-          setCurrentTime(playerRef.current.getCurrentTime());
+          setCurrentTime(playerRef.current.getCurrentTime()); 
         }
       }, 100);
     }
@@ -306,51 +322,72 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
           {songs.map((song, index) => (
             <div
               key={song.id}
-              onClick={() => {
-                setCurrentSongIndex(index);
-                setShowPlaylist(false);
-              }}
               className={cn(
-                "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all group hover:bg-white/10",
+                "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all group hover:bg-white/10 relative",
                 currentSongIndex === index
                   ? "bg-white/20 border border-white/10 shadow-lg"
                   : "border border-transparent"
               )}
             >
-              <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                <img
-                  src={song.cover}
-                  alt={song.title}
-                  className="w-full h-full object-cover"
-                />
-                {currentSongIndex === index && isPlaying && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <div className="flex gap-0.5 h-3 items-end">
-                      <div className="w-1 bg-white animate-pulse h-full"></div>
-                      <div
-                        className="w-1 bg-white animate-pulse h-2/3"
-                        style={{ animationDelay: "0.1s" }}
-                      ></div>
-                      <div
-                        className="w-1 bg-white animate-pulse h-full"
-                        style={{ animationDelay: "0.2s" }}
-                      ></div>
+              {/* Click vào phần chính để chọn bài hát */}
+              <div
+                onClick={() => {
+                  setCurrentSongIndex(index);
+                  setShowPlaylist(false);
+                }}
+                className="flex items-center gap-4 flex-1 min-w-0"
+              >
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                  <img
+                    src={song.cover}
+                    alt={song.title}
+                    className="w-full h-full object-cover"
+                  />
+                  {currentSongIndex === index && isPlaying && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="flex gap-0.5 h-3 items-end">
+                        <div className="w-1 bg-white animate-pulse h-full"></div>
+                        <div
+                          className="w-1 bg-white animate-pulse h-2/3"
+                          style={{ animationDelay: "0.1s" }}
+                        ></div>
+                        <div
+                          className="w-1 bg-white animate-pulse h-full"
+                          style={{ animationDelay: "0.2s" }}
+                        ></div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3
-                  className={cn(
-                    "font-medium truncate",
-                    currentSongIndex === index ? "text-white" : "text-white/80"
                   )}
-                >
-                  {song.title}
-                </h3>
-                <p className="text-sm text-white/50 truncate">{song.artist}</p>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h3
+                    className={cn(
+                      "font-medium truncate",
+                      currentSongIndex === index
+                        ? "text-white"
+                        : "text-white/80"
+                    )}
+                  >
+                    {song.title}
+                  </h3>
+                  <p className="text-sm text-white/50 truncate">
+                    {song.artist}
+                  </p>
+                </div>
               </div>
-              <span className="text-xs text-white/40">{song.duration}</span>
+
+              {/* Nút xóa - chỉ hiện khi hover (nhờ class group) */}
+              <button
+                onClick={e => {
+                  e.stopPropagation(); // Quan trọng: ngăn click lan ra phần chọn bài hát
+                  onRemoveSong(song.id);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-white/10 rounded-lg"
+                title="Xóa bài hát"
+              >
+                <X className="w-4 h-4 text-red-300 hover:text-red-200" />
+              </button>
             </div>
           ))}
         </div>
@@ -377,7 +414,7 @@ export default function MusicPlayer({ songs }: MusicPlayerProps) {
         <div className="flex-1 flex items-center justify-center py-6">
           <div
             className={cn(
-              "relative w-64 h-64 sm:w-80 sm:h-80 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
+              "relative w-64 h-64 sm:w-40 sm:h-40 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
               isPlaying ? "animate-[spin_20s_linear_infinite]" : ""
             )}
           >
