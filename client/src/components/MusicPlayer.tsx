@@ -83,14 +83,14 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   // Initialize player when song changes
   useEffect(() => {
     setCurrentTime(0);
-    // KHÔNG setIsPlaying(false) nữa - giữ nguyên trạng thái
-
+    const wasPlaying = isPlaying; // Lưu trạng thái đang play
+    
     // Clear interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-
+    
     // Handle YouTube
     if (currentSong.type === "youtube" && currentSong.youtubeId) {
       // Destroy old player
@@ -100,19 +100,19 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
         } catch (e) {}
         playerRef.current = null;
       }
-
+      
       const createPlayer = () => {
         if (!window.ytApiReady || !playerContainerRef.current) {
           setTimeout(createPlayer, 100);
           return;
         }
-
+        
         playerRef.current = new window.YT.Player(playerContainerRef.current, {
           height: "0",
           width: "0",
           videoId: currentSong.youtubeId,
           playerVars: {
-            autoplay: 0, // Giữ 0, không dùng autoplay=1 vì không tin cậy trong React
+            autoplay: 0,
             controls: 0,
             modestbranding: 1,
             rel: 0,
@@ -126,9 +126,9 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
               const dur = player.getDuration?.() || 0;
               setDuration(dur);
               player.setVolume(isMuted ? 0 : volume * 100);
-
-              // QUAN TRỌNG: Chỉ play khi ready VÀ người dùng đang muốn play
-              if (isPlaying) {
+              
+              // Play nếu đang ở trạng thái playing
+              if (wasPlaying) {
                 player.playVideo();
               }
             },
@@ -137,9 +137,25 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
                 setIsPlaying(true);
                 const dur = event.target.getDuration?.() || 0;
                 setDuration(dur);
+                
+                // Start tracking time ngay khi bắt đầu play
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                intervalRef.current = setInterval(() => {
+                  if (playerRef.current?.getCurrentTime) {
+                    setCurrentTime(playerRef.current.getCurrentTime());
+                  }
+                }, 100);
               } else if (event.data === window.YT.PlayerState.PAUSED) {
                 setIsPlaying(false);
+                if (intervalRef.current) {
+                  clearInterval(intervalRef.current);
+                  intervalRef.current = null;
+                }
               } else if (event.data === window.YT.PlayerState.ENDED) {
+                if (intervalRef.current) {
+                  clearInterval(intervalRef.current);
+                  intervalRef.current = null;
+                }
                 handleSongEnd();
               }
             },
@@ -151,19 +167,19 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
           },
         });
       };
-
+      
       createPlayer();
     }
     // Handle local MP3
     else if (audioRef.current) {
       audioRef.current.load();
       setDuration(0);
-
-      // Với local MP3: play ngay nếu đang isPlaying
-      if (isPlaying) {
+      
+      // Play ngay nếu đang isPlaying
+      if (wasPlaying) {
         audioRef.current.play().catch(e => {
           console.error("Local play error:", e);
-          setIsPlaying(false); // nếu bị chặn thì cập nhật UI
+          setIsPlaying(false);
         });
       }
     }
@@ -197,7 +213,7 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
     if (currentSong.type === "youtube" && playerRef.current && isPlaying) {
       intervalRef.current = setInterval(() => {
         if (playerRef.current?.getCurrentTime) {
-          setCurrentTime(playerRef.current.getCurrentTime()); 
+          setCurrentTime(playerRef.current.getCurrentTime());
         }
       }, 100);
     }
@@ -377,16 +393,16 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
                 </div>
               </div>
 
-              {/* Nút xóa - chỉ hiện khi hover (nhờ class group) */}
+              {/* Nút xóa - luôn hiện và màu đen */}
               <button
                 onClick={e => {
-                  e.stopPropagation(); // Quan trọng: ngăn click lan ra phần chọn bài hát
+                  e.stopPropagation(); // Vẫn giữ để ngăn click lan tỏa
                   onRemoveSong(song.id);
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-white/10 rounded-lg"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg transition-all"
                 title="Xóa bài hát"
               >
-                <X className="w-4 h-4 text-red-300 hover:text-red-200" />
+                <X className="w-4 h-4 text-[#1f2937] hover:text-[#374151]" />
               </button>
             </div>
           ))}
