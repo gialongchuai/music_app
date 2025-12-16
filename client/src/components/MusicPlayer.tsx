@@ -67,13 +67,75 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   const [isRepeat, setIsRepeat] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  const volumeWrapperRef = useRef<HTMLDivElement>(null);
+  const [isVolumeFocused, setIsVolumeFocused] = useState(false);
+  const [isVolumeAdjustMode, setIsVolumeAdjustMode] = useState(false);
 
+  // Bắt wheel toàn trang khi đang ở chế độ điều chỉnh volume
+  useEffect(() => {
+    if (!isVolumeAdjustMode) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault(); // Quan trọng: ngăn scroll trang khi cuộn wheel
+
+      const delta = e.deltaY < 0 ? 0.05 : -0.05; // Cuộn lên: tăng, xuống: giảm
+      const newVolume = Math.max(0, Math.min(1, volume + delta));
+
+      setVolume(newVolume);
+      if (newVolume > 0) setIsMuted(false);
+    };
+
+    document.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      document.removeEventListener("wheel", handleWheel);
+    };
+  }, [isVolumeAdjustMode, volume, isMuted]);
+  // Tắt chế độ khi click ra ngoài bất kỳ đâu
+  useEffect(() => {
+    if (!isVolumeAdjustMode) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const volumeArea = document.querySelector(".volume-control-wrapper");
+      const muteButton = document.querySelector(".volume-mute-button");
+
+      if (
+        volumeArea &&
+        !volumeArea.contains(e.target as Node) &&
+        muteButton &&
+        !muteButton.contains(e.target as Node)
+      ) {
+        setIsVolumeAdjustMode(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isVolumeAdjustMode]);
   const audioRef = useRef<HTMLAudioElement>(null);
   const playerRef = useRef<any>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<any>(null);
 
   const currentSong = songs[currentSongIndex] || {};
+
+  // Tự động bỏ focus khi click ra ngoài (tùy chọn, cho trải nghiệm tốt hơn)
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        volumeWrapperRef.current &&
+        !volumeWrapperRef.current.contains(e.target as Node)
+      ) {
+        setIsVolumeFocused(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Load YouTube API on mount
   useEffect(() => {
@@ -84,13 +146,13 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   useEffect(() => {
     setCurrentTime(0);
     const wasPlaying = isPlaying; // Lưu trạng thái đang play
-    
+
     // Clear interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    
+
     // Handle YouTube
     if (currentSong.type === "youtube" && currentSong.youtubeId) {
       // Destroy old player
@@ -100,13 +162,13 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
         } catch (e) {}
         playerRef.current = null;
       }
-      
+
       const createPlayer = () => {
         if (!window.ytApiReady || !playerContainerRef.current) {
           setTimeout(createPlayer, 100);
           return;
         }
-        
+
         playerRef.current = new window.YT.Player(playerContainerRef.current, {
           height: "0",
           width: "0",
@@ -126,7 +188,7 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
               const dur = player.getDuration?.() || 0;
               setDuration(dur);
               player.setVolume(isMuted ? 0 : volume * 100);
-              
+
               // Play nếu đang ở trạng thái playing
               if (wasPlaying) {
                 player.playVideo();
@@ -137,7 +199,7 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
                 setIsPlaying(true);
                 const dur = event.target.getDuration?.() || 0;
                 setDuration(dur);
-                
+
                 // Start tracking time ngay khi bắt đầu play
                 if (intervalRef.current) clearInterval(intervalRef.current);
                 intervalRef.current = setInterval(() => {
@@ -167,14 +229,14 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
           },
         });
       };
-      
+
       createPlayer();
     }
     // Handle local MP3
     else if (audioRef.current) {
       audioRef.current.load();
       setDuration(0);
-      
+
       // Play ngay nếu đang isPlaying
       if (wasPlaying) {
         audioRef.current.play().catch(e => {
@@ -517,10 +579,11 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
             </button>
           </div>
 
+          {/* Volume Control - Chỉ tắt wheel khi click ra ngoài */}
           <div className="flex items-center justify-center gap-3 max-w-xs mx-auto pt-2">
             <button
               onClick={() => setIsMuted(!isMuted)}
-              className="text-white/60 hover:text-white"
+              className="text-white/60 hover:text-white transition-colors volume-mute-button"
             >
               {isMuted || volume === 0 ? (
                 <VolumeX className="w-5 h-5" />
@@ -528,16 +591,35 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
                 <Volume2 className="w-5 h-5" />
               )}
             </button>
-            <Slider
-              value={[isMuted ? 0 : volume]}
-              max={1}
-              step={0.01}
-              onValueChange={v => {
-                setVolume(v[0]);
-                if (v[0] > 0) setIsMuted(false);
+
+            {/* Wrapper chỉ để click bật chế độ + hiển thị indicator */}
+            <div
+              className="relative flex-1 max-w-32 volume-control-wrapper cursor-pointer"
+              onClick={e => {
+                e.stopPropagation();
+                setIsVolumeAdjustMode(true);
               }}
-              className="w-24 sm:w-32"
-            />
+            >
+              <Slider
+                value={[isMuted ? 0 : volume]}
+                max={1}
+                step={0.01}
+                onValueChange={v => {
+                  setVolume(v[0]);
+                  if (v[0] > 0) setIsMuted(false);
+                }}
+                onPointerDown={e => {
+                  e.stopPropagation();
+                  setIsVolumeAdjustMode(true);
+                }}
+                className="w-full"
+              />
+
+              {/* Viền nhấp nháy khi đang active - giúp người dùng biết đang bật chế độ wheel toàn trang */}
+              {isVolumeAdjustMode && (
+                <div className="absolute -inset-2 border-2 border-white/50 rounded-lg pointer-events-none animate-pulse" />
+              )}
+            </div>
           </div>
         </div>
       </div>
