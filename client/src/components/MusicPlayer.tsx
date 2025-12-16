@@ -440,7 +440,7 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 rounded-full border-[3px] border-white/20"></div>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-white/10 backdrop-blur-md rounded-full border border-white/20 flex items-center justify-center">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md rounded-full border border-white/20 flex items-center justify-center">
               <div className="w-4 h-4 bg-white/30 rounded-full"></div>
             </div>
           </div>

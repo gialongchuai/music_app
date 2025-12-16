@@ -55,7 +55,8 @@ export default function Home() {
         <div className="glass-panel rounded-3xl p-8 text-center max-w-md w-full space-y-6">
           <div className="text-6xl">🎵</div>
           <h1 className="text-2xl font-bold text-white">
-            Chào mừng đến với Music Player
+            Chào mừng đến với <br />
+            Music Player
           </h1>
           <p className="text-white/60">
             Bạn chưa có bài hát nào. Hãy thêm bài hát bằng cách tải lên MP3 hoặc
