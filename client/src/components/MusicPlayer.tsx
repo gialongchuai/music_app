@@ -492,7 +492,7 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
         <div className="flex-1 flex items-center justify-center py-6">
           <div
             className={cn(
-              "relative w-64 h-64 sm:w-40 sm:h-40 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
+              "relative w-50 h-50 sm:w-40 sm:h-40 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
               isPlaying ? "animate-[spin_20s_linear_infinite]" : ""
             )}
           >

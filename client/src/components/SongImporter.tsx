@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Upload, Link as LinkIcon, X, Music } from "lucide-react";
 import { Song } from "./MusicPlayer";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,22 @@ export default function SongImporter({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false); // Để hiển thị loading khi fetch
+  // Tạo ref cho input YouTube URL
+  const youtubeInputRef = useRef<HTMLInputElement>(null);
 
+  // Focus vào input khi modal mở
+  useEffect(() => {
+    if (isOpen && youtubeInputRef.current) {
+      // Đợi một chút để modal render xong (đặc biệt khi có animation)
+      const timer = setTimeout(() => {
+        youtubeInputRef.current?.focus();
+        // Optional: chọn toàn bộ text nếu có sẵn (rất tiện nếu user muốn paste lại)
+        youtubeInputRef.current?.select();
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
   const extractYoutubeId = (url: string): string | null => {
     const patterns = [
       /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
@@ -181,7 +196,7 @@ export default function SongImporter({
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="glass-panel rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* ... header giữ nguyên */}
+        {/* ... header */}
 
         <div className="p-6 space-y-6">
           {error && (
@@ -197,7 +212,9 @@ export default function SongImporter({
               Nhập YouTube URL
             </h3>
             <div className="space-y-3">
+              {/* Thêm ref vào input này */}
               <input
+                ref={youtubeInputRef}
                 type="text"
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={youtubeUrl}
@@ -205,6 +222,7 @@ export default function SongImporter({
                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-primary"
               />
 
+              {/* Các input khác giữ nguyên */}
               <input
                 type="text"
                 placeholder="Tên bài hát (tự động điền nếu có)"
