@@ -131,7 +131,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-['Inter'];
+    @apply bg-background text-foreground font-['Epilogue'];
     background-image: url('/images/sunset-background.jpg');
     background-size: cover;
     background-position: center;
