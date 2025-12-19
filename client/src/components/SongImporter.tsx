@@ -146,6 +146,7 @@ export default function SongImporter({
     setError("");
   };
 
+  // --- PHẦN THAY ĐỔI CHÍNH LÀ ĐÂY ---
   const handleProcessFiles = async () => {
     if (uploadedFiles.length === 0) {
       setError("Vui lòng chọn file MP3");
@@ -170,10 +171,11 @@ export default function SongImporter({
             id: Date.now() + Math.random(),
             title: file.name.replace(/\.mp3$/i, ""),
             artist: "Unknown Artist",
-            cover: "/images/album1.jpg",
+            cover: "/images/album1.jpg", // Đảm bảo bạn có ảnh này hoặc đổi thành placeholder
             url: url,
             duration: durationStr,
             type: "local",
+            file: file, // <--- QUAN TRỌNG: Gửi file gốc về Home để lưu vào DB
           });
           resolve(null);
         };
@@ -186,6 +188,7 @@ export default function SongImporter({
     setIsLoading(false);
     setError("");
   };
+  // ----------------------------------
 
   const removeFile = (index: number) => {
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));

@@ -31,6 +31,7 @@ export interface Song {
   duration: string;
   type?: "local" | "youtube";
   youtubeId?: string;
+  file?: Blob; // <--- THÊM DÒNG NÀY: Để truyền file từ Importer sang Home
 }
 
 interface MusicPlayerProps {
@@ -66,13 +67,13 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   const [isRepeat, setIsRepeat] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  
+
   // Refs
   const audioRef = useRef<HTMLAudioElement>(null);
   const playerRef = useRef<any>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<any>(null);
-  
+
   // Ref để lưu trạng thái Repeat/Shuffle (Fix lỗi Stale Closure)
   const isRepeatRef = useRef(isRepeat);
   const isShuffleRef = useRef(isShuffle);
@@ -98,20 +99,24 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   // 2. Khi danh sách songs thay đổi (thêm/xóa), tìm lại vị trí của bài đang hát
   useEffect(() => {
     if (currentSongIdRef.current !== null) {
-      const newIndex = songs.findIndex((s) => s.id === currentSongIdRef.current);
+      const newIndex = songs.findIndex(s => s.id === currentSongIdRef.current);
       // Nếu bài hát vẫn còn trong list nhưng index đã đổi -> cập nhật index mới
       if (newIndex !== -1 && newIndex !== currentSongIndex) {
         setCurrentSongIndex(newIndex);
       }
-      // Lưu ý: Nếu newIndex === -1 (bài đang hát bị xóa), logic render sẽ tự handle hoặc crash nhẹ, 
+      // Lưu ý: Nếu newIndex === -1 (bài đang hát bị xóa), logic render sẽ tự handle hoặc crash nhẹ,
       // nhưng thường ta không xóa bài đang hát hoặc chấp nhận nó dừng.
     }
   }, [songs]); // Dependency chỉ là songs
   // -----------------------------------------------
 
   // Sync Refs
-  useEffect(() => { isRepeatRef.current = isRepeat; }, [isRepeat]);
-  useEffect(() => { isShuffleRef.current = isShuffle; }, [isShuffle]);
+  useEffect(() => {
+    isRepeatRef.current = isRepeat;
+  }, [isRepeat]);
+  useEffect(() => {
+    isShuffleRef.current = isShuffle;
+  }, [isShuffle]);
 
   // Volume Wheel Logic
   useEffect(() => {
@@ -132,7 +137,12 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
     const handleClickOutside = (e: MouseEvent) => {
       const volumeArea = document.querySelector(".volume-control-wrapper");
       const muteButton = document.querySelector(".volume-mute-button");
-      if (volumeArea && !volumeArea.contains(e.target as Node) && muteButton && !muteButton.contains(e.target as Node)) {
+      if (
+        volumeArea &&
+        !volumeArea.contains(e.target as Node) &&
+        muteButton &&
+        !muteButton.contains(e.target as Node)
+      ) {
         setIsVolumeAdjustMode(false);
       }
     };
@@ -142,7 +152,10 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (volumeWrapperRef.current && !volumeWrapperRef.current.contains(e.target as Node)) {
+      if (
+        volumeWrapperRef.current &&
+        !volumeWrapperRef.current.contains(e.target as Node)
+      ) {
         setIsVolumeFocused(false);
       }
     };
@@ -151,7 +164,9 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
   }, []);
 
   // Load API
-  useEffect(() => { loadYouTubeAPI(); }, []);
+  useEffect(() => {
+    loadYouTubeAPI();
+  }, []);
 
   // --- MAIN PLAYER EFFECT (Đã fix dependency để không reload khi thêm bài) ---
   useEffect(() => {
@@ -167,34 +182,40 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
 
     // --- YOUTUBE ---
     if (currentSong.type === "youtube" && currentSong.youtubeId) {
-      if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
+      if (
+        playerRef.current &&
+        typeof playerRef.current.loadVideoById === "function"
+      ) {
         try {
           playerRef.current.loadVideoById(currentSong.youtubeId);
           if (shouldPlay) playerRef.current.playVideo();
           else playerRef.current.pauseVideo();
         } catch (e) {
-            playerRef.current.destroy();
-            createYouTubePlayer(currentSong.youtubeId, shouldPlay);
+          playerRef.current.destroy();
+          createYouTubePlayer(currentSong.youtubeId, shouldPlay);
         }
       } else {
         if (audioRef.current) {
-             audioRef.current.pause();
-             audioRef.current.currentTime = 0;
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
         }
         createYouTubePlayer(currentSong.youtubeId, shouldPlay);
       }
-    } 
+    }
     // --- LOCAL MP3 ---
     else if (audioRef.current) {
-      if (playerRef.current && typeof playerRef.current.pauseVideo === "function") {
+      if (
+        playerRef.current &&
+        typeof playerRef.current.pauseVideo === "function"
+      ) {
         playerRef.current.pauseVideo();
       }
       audioRef.current.load();
       setDuration(0);
       if (shouldPlay) {
         audioRef.current.play().catch(e => {
-            console.error("Auto-play blocked:", e);
-            setIsPlaying(false);
+          console.error("Auto-play blocked:", e);
+          setIsPlaying(false);
         });
       }
     }
@@ -211,7 +232,13 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
       height: "0",
       width: "0",
       videoId: videoId,
-      playerVars: { autoplay: shouldPlay ? 1 : 0, controls: 0, modestbranding: 1, playsinline: 1, enablejsapi: 1 },
+      playerVars: {
+        autoplay: shouldPlay ? 1 : 0,
+        controls: 0,
+        modestbranding: 1,
+        playsinline: 1,
+        enablejsapi: 1,
+      },
       events: {
         onReady: (e: any) => {
           setDuration(e.target.getDuration?.() || 0);
@@ -224,7 +251,8 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
             setDuration(e.target.getDuration?.() || 0);
             if (intervalRef.current) clearInterval(intervalRef.current);
             intervalRef.current = setInterval(() => {
-              if (playerRef.current?.getCurrentTime) setCurrentTime(playerRef.current.getCurrentTime());
+              if (playerRef.current?.getCurrentTime)
+                setCurrentTime(playerRef.current.getCurrentTime());
             }, 100);
           } else if (e.data === window.YT.PlayerState.PAUSED) {
             setIsPlaying(false);
@@ -232,17 +260,25 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
             handleSongEnd();
           }
         },
-        onError: () => handleNext()
+        onError: () => handleNext(),
       },
     });
   };
 
   // Play/Pause button trigger
   useEffect(() => {
-    if (currentSong.type === "youtube" && playerRef.current && typeof playerRef.current.playVideo === "function") {
-      isPlaying ? playerRef.current.playVideo() : playerRef.current.pauseVideo();
+    if (
+      currentSong.type === "youtube" &&
+      playerRef.current &&
+      typeof playerRef.current.playVideo === "function"
+    ) {
+      isPlaying
+        ? playerRef.current.playVideo()
+        : playerRef.current.pauseVideo();
     } else if (audioRef.current) {
-      isPlaying ? audioRef.current.play().catch(() => setIsPlaying(false)) : audioRef.current.pause();
+      isPlaying
+        ? audioRef.current.play().catch(() => setIsPlaying(false))
+        : audioRef.current.pause();
     }
   }, [isPlaying]);
 
@@ -291,13 +327,13 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
     if (isShuffleRef.current) {
       setCurrentSongIndex(Math.floor(Math.random() * songs.length));
     } else {
-      setCurrentSongIndex((prev) => (prev + 1) % songs.length);
+      setCurrentSongIndex(prev => (prev + 1) % songs.length);
     }
   };
 
   const handlePrev = () => {
     if (currentTime > 3) handleSeek([0]);
-    else setCurrentSongIndex((prev) => (prev - 1 + songs.length) % songs.length);
+    else setCurrentSongIndex(prev => (prev - 1 + songs.length) % songs.length);
   };
 
   const formatTime = (time: number) => {
@@ -320,18 +356,32 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
       />
 
       {/* YouTube player container */}
-      <div className={cn("hidden", currentSong.type === "youtube" ? "block" : "hidden")}>
+      <div
+        className={cn(
+          "hidden",
+          currentSong.type === "youtube" ? "block" : "hidden"
+        )}
+      >
         <div ref={playerContainerRef} />
       </div>
 
       {/* Playlist UI */}
-      <div className={cn(
+      <div
+        className={cn(
           "glass-panel rounded-3xl flex-1 flex flex-col overflow-hidden transition-all duration-500 ease-in-out",
-          showPlaylist ? "fixed inset-4 z-50 lg:static lg:inset-auto" : "hidden lg:flex"
-        )}>
+          showPlaylist
+            ? "fixed inset-4 z-50 lg:static lg:inset-auto"
+            : "hidden lg:flex"
+        )}
+      >
         <div className="p-6 border-b border-white/10 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white tracking-wide">Playlist</h2>
-          <button onClick={() => setShowPlaylist(false)} className="lg:hidden p-2 hover:bg-white/10 rounded-full">
+          <h2 className="text-xl font-bold text-white tracking-wide">
+            Playlist
+          </h2>
+          <button
+            onClick={() => setShowPlaylist(false)}
+            className="lg:hidden p-2 hover:bg-white/10 rounded-full"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -341,29 +391,61 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
               key={song.id}
               className={cn(
                 "flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all group hover:bg-white/10 relative",
-                currentSongIndex === index ? "bg-white/20 border border-white/10 shadow-lg" : "border border-transparent"
+                currentSongIndex === index
+                  ? "bg-white/20 border border-white/10 shadow-lg"
+                  : "border border-transparent"
               )}
             >
-              <div onClick={() => { setCurrentSongIndex(index); setShowPlaylist(false); }} className="flex items-center gap-4 flex-1 min-w-0">
+              <div
+                onClick={() => {
+                  setCurrentSongIndex(index);
+                  setShowPlaylist(false);
+                }}
+                className="flex items-center gap-4 flex-1 min-w-0"
+              >
                 <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                  <img src={song.cover} alt={song.title} className="w-full h-full object-cover" />
+                  <img
+                    src={song.cover}
+                    alt={song.title}
+                    className="w-full h-full object-cover"
+                  />
                   {currentSongIndex === index && isPlaying && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                       <div className="flex gap-0.5 h-3 items-end">
                         <div className="w-1 bg-white animate-pulse h-full"></div>
-                        <div className="w-1 bg-white animate-pulse h-2/3" style={{ animationDelay: "0.1s" }}></div>
-                        <div className="w-1 bg-white animate-pulse h-full" style={{ animationDelay: "0.2s" }}></div>
+                        <div
+                          className="w-1 bg-white animate-pulse h-2/3"
+                          style={{ animationDelay: "0.1s" }}
+                        ></div>
+                        <div
+                          className="w-1 bg-white animate-pulse h-full"
+                          style={{ animationDelay: "0.2s" }}
+                        ></div>
                       </div>
                     </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className={cn("font-medium truncate", currentSongIndex === index ? "text-white" : "text-white/80")}>{song.title}</h3>
-                  <p className="text-sm text-white/50 truncate">{song.artist}</p>
+                  <h3
+                    className={cn(
+                      "font-medium truncate",
+                      currentSongIndex === index
+                        ? "text-white"
+                        : "text-white/80"
+                    )}
+                  >
+                    {song.title}
+                  </h3>
+                  <p className="text-sm text-white/50 truncate">
+                    {song.artist}
+                  </p>
                 </div>
               </div>
               <button
-                onClick={(e) => { e.stopPropagation(); onRemoveSong(song.id); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  onRemoveSong(song.id);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg transition-all"
                 title="Xóa bài hát"
               >
@@ -377,13 +459,32 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
       {/* Player UI */}
       <div className="glass-panel rounded-3xl flex-[1.5] flex flex-col p-6 lg:p-10 relative overflow-hidden">
         {/* ... (Giữ nguyên phần UI Player như cũ, không thay đổi gì ở đây) ... */}
-        <div className="absolute inset-0 -z-10 opacity-30 blur-3xl transition-all duration-1000" style={{ background: `radial-gradient(circle at center, ${currentSongIndex % 2 === 0 ? "#a855f7" : "#3b82f6"}, transparent 70%)` }}></div>
+        <div
+          className="absolute inset-0 -z-10 opacity-30 blur-3xl transition-all duration-1000"
+          style={{
+            background: `radial-gradient(circle at center, ${currentSongIndex % 2 === 0 ? "#a855f7" : "#3b82f6"}, transparent 70%)`,
+          }}
+        ></div>
         <div className="lg:hidden absolute top-4 right-4">
-          <button onClick={() => setShowPlaylist(true)} className="p-3 glass-button rounded-full"><ListMusic className="w-5 h-5 text-white" /></button>
+          <button
+            onClick={() => setShowPlaylist(true)}
+            className="p-3 glass-button rounded-full"
+          >
+            <ListMusic className="w-5 h-5 text-white" />
+          </button>
         </div>
         <div className="flex-1 flex items-center justify-center py-6">
-          <div className={cn("relative w-50 h-50 sm:w-40 sm:h-40 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700", isPlaying ? "animate-[spin_20s_linear_infinite]" : "")}>
-            <img src={currentSong.cover} alt={currentSong.title} className="w-full h-full object-cover" />
+          <div
+            className={cn(
+              "relative w-50 h-50 sm:w-40 sm:h-40 rounded-full shadow-2xl border-4 border-white/10 overflow-hidden transition-all duration-700",
+              isPlaying ? "animate-[spin_20s_linear_infinite]" : ""
+            )}
+          >
+            <img
+              src={currentSong.cover}
+              alt={currentSong.title}
+              className="w-full h-full object-cover"
+            />
             <div className="absolute inset-0 rounded-full border-[3px] border-white/20"></div>
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-white/10 backdrop-blur-md rounded-full border border-white/20 flex items-center justify-center">
               <div className="w-4 h-4 bg-white/30 rounded-full"></div>
@@ -391,29 +492,104 @@ export default function MusicPlayer({ songs, onRemoveSong }: MusicPlayerProps) {
           </div>
         </div>
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{currentSong.title}</h1>
-          <p className="text-lg text-white/60 font-light">{currentSong.artist}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            {currentSong.title}
+          </h1>
+          <p className="text-lg text-white/60 font-light">
+            {currentSong.artist}
+          </p>
         </div>
         <div className="space-y-6">
           <div className="space-y-2">
-            <Slider value={[currentTime]} max={duration || 100} step={1} onValueChange={handleSeek} className="cursor-pointer" />
+            <Slider
+              value={[currentTime]}
+              max={duration || 100}
+              step={1}
+              onValueChange={handleSeek}
+              className="cursor-pointer"
+            />
             <div className="flex justify-between text-xs font-medium text-white/40">
               <span>{formatTime(currentTime)}</span>
               <span>{formatTime(duration)}</span>
             </div>
           </div>
           <div className="flex items-center justify-center gap-4 sm:gap-8">
-            <button onClick={() => setIsShuffle(!isShuffle)} className={cn("p-2 transition-colors", isShuffle ? "text-primary" : "text-white/40 hover:text-white")}><Shuffle className="w-5 h-5" /></button>
-            <button onClick={handlePrev} className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"><SkipBack className="w-6 h-6 text-white fill-white" /></button>
-            <button onClick={() => setIsPlaying(!isPlaying)} className="p-4 sm:p-6 bg-white text-primary rounded-full shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all">{isPlaying ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}</button>
-            <button onClick={handleNext} className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"><SkipForward className="w-6 h-6 text-white fill-white" /></button>
-            <button onClick={() => setIsRepeat(!isRepeat)} className={cn("p-2 transition-colors", isRepeat ? "text-primary" : "text-white/40 hover:text-white")}><Repeat className="w-5 h-5" /></button>
+            <button
+              onClick={() => setIsShuffle(!isShuffle)}
+              className={cn(
+                "p-2 transition-colors",
+                isShuffle ? "text-primary" : "text-white/40 hover:text-white"
+              )}
+            >
+              <Shuffle className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handlePrev}
+              className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"
+            >
+              <SkipBack className="w-6 h-6 text-white fill-white" />
+            </button>
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="p-4 sm:p-6 bg-white text-primary rounded-full shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all"
+            >
+              {isPlaying ? (
+                <Pause className="w-8 h-8 fill-current" />
+              ) : (
+                <Play className="w-8 h-8 fill-current ml-1" />
+              )}
+            </button>
+            <button
+              onClick={handleNext}
+              className="p-3 sm:p-4 glass-button rounded-full hover:scale-105 active:scale-95"
+            >
+              <SkipForward className="w-6 h-6 text-white fill-white" />
+            </button>
+            <button
+              onClick={() => setIsRepeat(!isRepeat)}
+              className={cn(
+                "p-2 transition-colors",
+                isRepeat ? "text-primary" : "text-white/40 hover:text-white"
+              )}
+            >
+              <Repeat className="w-5 h-5" />
+            </button>
           </div>
           <div className="flex items-center justify-center gap-3 max-w-xs mx-auto pt-2">
-            <button onClick={() => setIsMuted(!isMuted)} className="text-white/60 hover:text-white transition-colors volume-mute-button">{isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</button>
-            <div className="relative flex-1 max-w-32 volume-control-wrapper cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsVolumeAdjustMode(true); }}>
-              <Slider value={[isMuted ? 0 : volume]} max={1} step={0.01} onValueChange={(v) => { setVolume(v[0]); if (v[0] > 0) setIsMuted(false); }} onPointerDown={(e) => { e.stopPropagation(); setIsVolumeAdjustMode(true); }} className="w-full" />
-              {isVolumeAdjustMode && <div className="absolute -inset-2 border-2 border-white/50 rounded-lg pointer-events-none animate-pulse" />}
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="text-white/60 hover:text-white transition-colors volume-mute-button"
+            >
+              {isMuted || volume === 0 ? (
+                <VolumeX className="w-5 h-5" />
+              ) : (
+                <Volume2 className="w-5 h-5" />
+              )}
+            </button>
+            <div
+              className="relative flex-1 max-w-32 volume-control-wrapper cursor-pointer"
+              onClick={e => {
+                e.stopPropagation();
+                setIsVolumeAdjustMode(true);
+              }}
+            >
+              <Slider
+                value={[isMuted ? 0 : volume]}
+                max={1}
+                step={0.01}
+                onValueChange={v => {
+                  setVolume(v[0]);
+                  if (v[0] > 0) setIsMuted(false);
+                }}
+                onPointerDown={e => {
+                  e.stopPropagation();
+                  setIsVolumeAdjustMode(true);
+                }}
+                className="w-full"
+              />
+              {isVolumeAdjustMode && (
+                <div className="absolute -inset-2 border-2 border-white/50 rounded-lg pointer-events-none animate-pulse" />
+              )}
             </div>
           </div>
         </div>
